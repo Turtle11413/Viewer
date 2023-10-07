@@ -1,53 +1,64 @@
 #include "parser.h"
-#include "parser_utility.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-int parse_obj(const char *filename, data_gg *data, int connect_vertex_count) {
+#include "parser_utility.h"
+
+int parse_obj(const char *filename, data_gg *data) {
   data_t obj_data;
   int rtn = 0;
 
   rtn = parse_file(filename, &obj_data);
   if (!rtn) {
-    rtn = convert_data_t_to_data_gg(&obj_data, data, connect_vertex_count);
+    rtn = convert_data_t_to_data_gg(&obj_data, data);
   }
 
-  vector_vertex_remove(&obj_data);
-  vector_index_remove(&obj_data);
+  if (!rtn) {
+    vector_vertex_remove(&obj_data);
+    vector_index_remove(&obj_data);
+  }
 
   return rtn;
 }
 
-int convert_data_t_to_data_gg(data_t *source, data_gg *target,
-                              int connect_vertex_count) {
+int convert_data_t_to_data_gg(data_t *source, data_gg *target) {
   int rtn = 0;
-
-  target->vertex = (double *)malloc(sizeof(double) * source->vertex_offset * 3);
+  target->vertex = (double *)calloc(source->vertex_offset * 3, sizeof(double));
   if (!target->vertex) {
     rtn = MEMORY_ALLOCATION_ERROR;
   }
   target->index =
-      (int *)malloc(sizeof(int) * source->index_offset * connect_vertex_count);
+      (int *)calloc(source->index_offset * MAX_INDEXES * 2, sizeof(int));
   if (!target->index) {
     rtn = MEMORY_ALLOCATION_ERROR;
     free(target->vertex);
   }
 
-  for (int i = 0; i < source->vertex_offset; ++i) {
+  for (unsigned int i = 0; i < source->vertex_offset; ++i) {
     target->vertex[i * 3] = source->vertexes[i].x;
     target->vertex[i * 3 + 1] = source->vertexes[i].y;
     target->vertex[i * 3 + 2] = source->vertexes[i].z;
   }
   target->vertex_count = source->vertex_offset;
 
-  for (int i = 0; i < source->index_offset; ++i) {
-    for (int j = 0; j < connect_vertex_count; ++j) {
-      target->index[i * connect_vertex_count + j] =
-          source->indexes[i].indexes[j];
+  for (unsigned int i = 0; i < source->index_offset; ++i) {
+    for (int j = 0; j < source->indexes[i].count; ++j) {
+      if (j == 0) {
+        target->index[i * MAX_INDEXES * 2] = source->indexes[i].indexes[j];
+        target->index[i * MAX_INDEXES * 2 + source->indexes[i].count * 2 - 1] =
+            source->indexes[i].indexes[j];
+      } else {
+        target->index[i * MAX_INDEXES * 2 + (j - 1) * 2 + 1] =
+            source->indexes[i].indexes[j];
+        target->index[i * MAX_INDEXES * 2 + (j - 1) * 2 + 2] =
+            source->indexes[i].indexes[j];
+      }
     }
+    target->edge_count += source->indexes[i].count;
   }
-  target->index_count = source->index_offset;
+  target->index_count = source->index_offset * MAX_INDEXES * 2;
 
   return rtn;
 }
@@ -95,12 +106,13 @@ int parse_lines(FILE *file, data_t *data) {
   }
 
   while (!rtn && !(rtn = read_line(file, &line))) {
-    parse_result res = {NOTHING, {0}, data->vertex_offset};
+    parse_result res = {0};
+    res.vertex_count = data->vertex_offset;
     if (!rtn) {
       rtn = parse_line(line.start, &res);
     }
     if (!rtn) {
-      rtn = add_parse_result(data, res);
+      rtn = add_parse_result(data, &res);
     }
     if (rtn != VECTOR_INITIALIZATION_ERROR) {
       vector_char_remove(&line);
@@ -110,13 +122,13 @@ int parse_lines(FILE *file, data_t *data) {
   return rtn;
 }
 
-int add_parse_result(data_t *data, parse_result res) {
+int add_parse_result(data_t *data, parse_result *res) {
   int rtn = 0;
 
-  if (res.type == VERTEX) {
-    rtn = vector_vertex_push_back(data, res.value.vert);
-  } else if (res.type == INDEX) {
-    rtn = vector_index_push_back(data, res.value.ind);
+  if (res->type == VERTEX) {
+    rtn = vector_vertex_push_back(data, res->value.vert);
+  } else if (res->type == INDEX) {
+    rtn = vector_index_push_back(data, res->value.ind);
   }
 
   return rtn;
@@ -166,7 +178,7 @@ int parse_index(char *line, parse_result *res) {
       if (value < 0) {
         value = res->vertex_count + value + 1;
       }
-      res->value.ind.indexes[count] = value;
+      res->value.ind.indexes[count] = value - 1;
       ++count;
     } else {
       if (*line == '#') {
@@ -180,6 +192,7 @@ int parse_index(char *line, parse_result *res) {
 
   if (!rtn) {
     res->type = INDEX;
+    res->value.ind.count = count;
   }
 
   return rtn;
@@ -187,13 +200,13 @@ int parse_index(char *line, parse_result *res) {
 
 int read_line(FILE *file, vector_char *line) {
   int rtn = 0;
-  char c;
+  int c = 0;  // изменил char на int и присвоил ему 0
 
   rtn = vector_char_create(line);
   if (!rtn) {
     c = getc(file);
   }
-  while (c != EOF && !rtn && c != '\n') {
+  while (!rtn && c != '\n' && c != '\r' && c != EOF) {
     rtn = vector_char_push_back(line, c);
     c = getc(file);
   }
@@ -214,7 +227,7 @@ int read_line(FILE *file, vector_char *line) {
 
 int vector_char_create(vector_char *v) {
   int rtn = 0;
-  *v = (vector_char){NULL, 0};
+  *v = (vector_char){NULL, 0, 0};
 
   v->start = (char *)malloc(sizeof(char) * VECTOR_INITIAL_SIZE);
   if (!v->start) {
@@ -338,6 +351,7 @@ int vector_index_push_back(data_t *v, edge ind) {
     for (int i = 0; i < MAX_INDEXES; ++i) {
       v->indexes[v->index_offset].indexes[i] = ind.indexes[i];
     }
+    v->indexes[v->index_offset].count = ind.count;
     ++(v->index_offset);
   }
 

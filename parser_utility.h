@@ -1,8 +1,9 @@
 #ifndef S21_3D_VIEWER_PARSER_UTILITY_H
 #define S21_3D_VIEWER_PARSER_UTILITY_H
 
-#include "parser.h"
 #include <stdio.h>
+
+#include "parser.h"
 
 #define VECTOR_INITIAL_SIZE 8
 #define VECTOR_RESIZE_FACTOR 1.5
@@ -38,7 +39,7 @@ typedef struct {
 int read_line(FILE *file, vector_char *line);
 int parse_line(char *line, parse_result *res);
 int parse_lines(FILE *file, data_t *data);
-int add_parse_result(data_t *data, parse_result res);
+int add_parse_result(data_t *data, parse_result *res);
 
 int parse_vertex(char *line, parse_result *res);
 int parse_index(char *line, parse_result *res);
